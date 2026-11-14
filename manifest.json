@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "YAPM",
+  "name": "Yet Another Plugin Manager",
+  "version": "1.7.1",
+  "author": "Zizor",
+  "license": "MIT",
+  "description": "A simple marketplace and manager for Omarchy shell plugins.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Yet Another Plugin Manager",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
