@@ -305,6 +305,14 @@ class BackendTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unknown action"):
             b.start("move-../../invalid", "test.widget")
 
+    def test_manifest_uses_marketplace_compatible_runtime_id(self):
+        manifest = json.loads((ROOT / "manifest.json").read_text())
+        plugin_id = manifest["id"]
+        self.assertEqual(plugin_id, plugin_id.lower())
+        self.assertEqual(plugin_id, b.PLUGIN_ID)
+        for name in ("BarWidget.qml", "Panel.qml"):
+            self.assertIn('moduleName: "' + plugin_id + '"', (ROOT / name).read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

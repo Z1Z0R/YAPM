@@ -7,7 +7,7 @@ import qs.Commons as Commons
 
 BarWidget {
     id: root
-    moduleName: "YAPM"
+    moduleName: "yapm"
     readonly property bool opened: panelLoader.item ? panelLoader.item.opened : false
     readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing : false
     implicitWidth: button.implicitWidth

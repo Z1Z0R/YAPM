@@ -2,7 +2,7 @@
 set -euo pipefail
 
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-plugin_id=YAPM
+plugin_id=yapm
 plugin_root="$HOME/.config/omarchy/plugins"
 target="$plugin_root/$plugin_id"
 for dependency in omarchy omarchy-shell python3 git curl; do
@@ -25,7 +25,7 @@ fi
 mv -- "$stage" "$target"
 omarchy-shell shell rescanPlugins >/dev/null
 for ((attempt=0; attempt<80; attempt++)); do
-  if omarchy plugin list --json | python3 -c 'import json,sys; sys.exit(not any(p["id"] == "YAPM" for p in json.load(sys.stdin)))'; then
+  if omarchy plugin list --json | python3 -c 'import json,sys; sys.exit(not any(p["id"] == "yapm" for p in json.load(sys.stdin)))'; then
     omarchy plugin enable "$plugin_id" --section right
     echo "Yet Another Plugin Manager is ready. Click its cube icon in the bar."
     exit 0

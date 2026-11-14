@@ -46,7 +46,7 @@ cd YAPM
 
 The local installer backs up your shell configuration and refuses to overwrite
 an existing YAPM installation. Both methods install under
-`~/.config/omarchy/plugins/YAPM`.
+`~/.config/omarchy/plugins/yapm`.
 
 ## Usage
 
@@ -83,9 +83,9 @@ through YAPM.
 
 ### Configuration and data
 
-- **Plugin files:** `~/.config/omarchy/plugins/YAPM/`
+- **Plugin files:** `~/.config/omarchy/plugins/yapm/`
 - **Preferences:** YAPM's entry in `~/.config/omarchy/shell.json`
-- **Catalog and operation cache:** `${XDG_CACHE_HOME:-~/.cache}/YAPM/`
+- **Catalog and operation cache:** `${XDG_CACHE_HOME:-~/.cache}/yapm/`
 
 The marketplace catalog is cached as `catalog.json.gz`. Downloads and cache
 decompression have a **64 MiB decoded size limit**. Short descriptions come
@@ -94,16 +94,16 @@ from installed plugin manifests, with cached marketplace descriptions as a fallb
 ### Command-line shortcuts
 
 ```sh
-omarchy-shell shell summon YAPM '{}'
-omarchy-shell YAPM page marketplace
-omarchy-shell YAPM page updates
-omarchy-shell shell hide YAPM
+omarchy-shell shell summon yapm '{}'
+omarchy-shell yapm page marketplace
+omarchy-shell yapm page updates
+omarchy-shell shell hide yapm
 ```
 
 To remove YAPM:
 
 ```sh
-omarchy plugin remove YAPM
+omarchy plugin remove yapm
 ```
 
 ## Development

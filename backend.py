@@ -14,7 +14,7 @@ import tempfile
 import time
 from urllib.parse import urlsplit
 
-PLUGIN_ID = "YAPM"
+PLUGIN_ID = "yapm"
 PLUGINS = Path.home() / ".config/omarchy/plugins"
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / PLUGIN_ID
 CATALOG_URL = "https://plugins.omarchy.org/catalog.json"

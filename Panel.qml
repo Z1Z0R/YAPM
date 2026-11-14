@@ -8,7 +8,7 @@ import qs.Commons as Commons
 
 Panel {
     id: root
-    moduleName: "YAPM"
+    moduleName: "yapm"
     manageIpc: false
     property var anchorItem: null
     property var hostWidget: null
