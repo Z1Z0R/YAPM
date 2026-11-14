@@ -19,6 +19,7 @@ PLUGINS = Path.home() / ".config/omarchy/plugins"
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / PLUGIN_ID
 CATALOG_URL = "https://plugins.omarchy.org/catalog.json"
 MAX_BYTES = 64 * 1024 * 1024
+MOVE_ACTIONS = {"move-" + section: section for section in ("left", "centerBegin", "center", "centerEnd", "right", "tray")}
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}\Z")
 SHA_RE = re.compile(r"[a-fA-F0-9]{40,64}\Z")
 ENV = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_SSH_COMMAND="ssh -oBatchMode=yes")
@@ -232,7 +233,7 @@ def perform(action, plugin_id):
     if action == "check":
         check_updates()
         return
-    if not valid_id(plugin_id) or plugin_id == PLUGIN_ID:
+    if not valid_id(plugin_id) or (plugin_id == PLUGIN_ID and action not in MOVE_ACTIONS):
         raise ValueError("This plugin cannot modify itself")
     catalog = {row["id"]: row for row in load("catalog", {"rows": []})["rows"]}
     rows = {row["id"]: row for row in installed()}
@@ -248,7 +249,16 @@ def perform(action, plugin_id):
         return
     if not row:
         raise ValueError("Plugin is no longer installed")
-    if action == "enable":
+    if action in MOVE_ACTIONS:
+        kinds = row.get("kinds", [])
+        if "bar-widget" not in kinds or "bar" in kinds:
+            raise ValueError("This plugin does not provide a positionable bar widget")
+        section = MOVE_ACTIONS[action]
+        if row.get("enabled"):
+            run(["omarchy", "bar", "move", plugin_id, "--section", section])
+        else:
+            run(["omarchy", "plugin", "enable", plugin_id, "--section", section])
+    elif action == "enable":
         run(["omarchy", "plugin", "enable", plugin_id])
     elif action == "disable":
         if row.get("canDisable") is not True:
@@ -272,7 +282,7 @@ def perform(action, plugin_id):
 
 
 def start(action, plugin_id):
-    if action not in ("catalog", "check", "install", "install-enable", "enable", "disable", "remove", "update"):
+    if action not in ("catalog", "check", "install", "install-enable", "enable", "disable", "remove", "update") and action not in MOVE_ACTIONS:
         raise ValueError("Unknown action")
     CACHE.mkdir(parents=True, exist_ok=True)
     lock = open(CACHE / "operation.lock", "w")
@@ -280,7 +290,7 @@ def start(action, plugin_id):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         raise RuntimeError("Another plugin operation is already running")
-    save("job", dict(busy=True, action=action, id=plugin_id, at=int(time.time())))
+    save("job", dict(busy=True, action="move" if action in MOVE_ACTIONS else action, id=plugin_id, at=int(time.time())))
     child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "worker", action, plugin_id, str(lock.fileno())],
                              start_new_session=True, pass_fds=(lock.fileno(),), stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=ENV)
@@ -291,9 +301,9 @@ def start(action, plugin_id):
 def worker(action, plugin_id, fd):
     try:
         perform(action, plugin_id)
-        save("job", dict(busy=False, ok=True, action=action, id=plugin_id, at=int(time.time())))
+        save("job", dict(busy=False, ok=True, action="move" if action in MOVE_ACTIONS else action, id=plugin_id, at=int(time.time())))
     except Exception as error:
-        save("job", dict(busy=False, ok=False, action=action, id=plugin_id, error=str(error)[-3000:], at=int(time.time())))
+        save("job", dict(busy=False, ok=False, action="move" if action in MOVE_ACTIONS else action, id=plugin_id, error=str(error)[-3000:], at=int(time.time())))
     finally:
         os.close(int(fd))
 
@@ -311,6 +321,7 @@ def view(tab="installed", query="", page="0", origin="all", collapsed=""):
         row["updateState"] = checked.get("state", "unchecked") if checked.get("head") == row["head"] else "unchecked"
         row["updateError"] = checked.get("error", "")
         row["latest"] = listing.get("version", "")
+        row["positionable"] = "bar-widget" in row.get("kinds", []) and "bar" not in row.get("kinds", [])
         row["manageable"] = row["id"] != PLUGIN_ID
         row["updatable"] = eligible(row) and row["manageable"]
     count = sum(row["updateState"] == "available" for row in local)

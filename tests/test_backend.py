@@ -278,6 +278,33 @@ class BackendTests(unittest.TestCase):
             {"id": "omarchy.clock", "name": "Clock", "firstParty": True}])):
             self.assertEqual(b.installed()[0]["description"], "Clock and calendar")
 
+    def test_bar_placement_moves_enabled_widgets_in_each_section(self):
+        row = {"id": "test.widget", "kinds": ["bar-widget"], "enabled": True}
+        with patch.object(b, "installed", return_value=[row]), patch.object(b, "run") as run:
+            for action, section in b.MOVE_ACTIONS.items():
+                b.perform(action, row["id"])
+                self.assertEqual(run.call_args.args[0], ["omarchy", "bar", "move", row["id"], "--section", section])
+
+    def test_bar_placement_enables_disabled_widgets_at_selected_location(self):
+        row = {"id": "test.widget", "kinds": ["bar-widget"], "enabled": False}
+        with patch.object(b, "installed", return_value=[row]), patch.object(b, "run") as run:
+            b.perform("move-centerBegin", row["id"])
+            self.assertEqual(run.call_args.args[0], ["omarchy", "plugin", "enable", row["id"], "--section", "centerBegin"])
+
+    def test_bar_placement_allows_manager_but_rejects_services_and_invalid_sections(self):
+        row = {"id": b.PLUGIN_ID, "kinds": ["bar-widget"], "enabled": True}
+        with patch.object(b, "installed", return_value=[row]), patch.object(b, "run") as run:
+            b.perform("move-left", row["id"])
+            self.assertEqual(run.call_args.args[0], ["omarchy", "bar", "move", b.PLUGIN_ID, "--section", "left"])
+        for kinds in (["service"], ["bar"], ["bar", "bar-widget"]):
+            row = {"id": "test.plugin", "kinds": kinds, "enabled": True}
+            with patch.object(b, "installed", return_value=[row]), patch.object(b, "run") as run:
+                with self.assertRaisesRegex(ValueError, "bar widget"):
+                    b.perform("move-left", row["id"])
+                run.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "Unknown action"):
+            b.start("move-../../invalid", "test.widget")
+
 
 if __name__ == "__main__":
     unittest.main()

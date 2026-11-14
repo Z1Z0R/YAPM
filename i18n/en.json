@@ -66,5 +66,16 @@
   "noDescription": "No description provided by this plugin.",
   "updateDisclaimer": "Updates fetch the latest default-branch commit from Git, which may be newer than published releases. Review changes first. Use plugins and apply updates at your own discretion.",
   "marketplaceDisclaimer": "Plugins download from Git repositories and run with your user’s access. Review the source before installing or enabling them. Use and install plugins at your own discretion.",
-  "required": "Required"
+  "required": "Required",
+  "position": "Position",
+  "position.left": "Left",
+  "position.centerBegin": "Before center",
+  "position.center": "Center",
+  "position.centerEnd": "After center",
+  "position.right": "Right",
+  "position.tray": "Tray",
+  "applyPosition": "Apply",
+  "enableHere": "Enable here",
+  "working.move": "Updating bar position…",
+  "done.move": "Bar position updated."
 }

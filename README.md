@@ -10,6 +10,9 @@ plugins, manage what is installed, and check for updates without leaving your ba
 - **Manage installed plugins:** enable, disable, and remove plugins from one panel.
 - **Keep things organized:** separate Official Omarchy and Third-party categories,
   each with expandable Enabled and Disabled sections.
+- **Arrange your bar:** use each installed bar widget’s **Position** button to
+  choose Left, Before center, Center, After center, Right, or Tray. For disabled
+  widgets, **Enable here** enables them in the selected section.
 - **Find plugins:** search names, IDs, descriptions, and marketplace authors.
 - **Browse the marketplace:** discover plugins from [plugins.omarchy.org](https://plugins.omarchy.org/)
   and install supported plugin repositories.

@@ -31,6 +31,8 @@ Panel {
         })
     property string errorText: ""
     property var pending: null
+    property string positioningId: ""
+    property string positionSection: "right"
     property string launchAction: ""
     property string launchId: ""
     property bool launching: false
@@ -51,12 +53,14 @@ Panel {
         root.tab = value;
         root.pageIndex = 0;
         root.pending = null;
+        root.positioningId = "";
         refresh();
     }
     function selectOrigin(value) {
         root.origin = value;
         root.pageIndex = 0;
         root.pending = null;
+        root.positioningId = "";
         refresh();
     }
     function sectionCollapsed(section) {
@@ -68,6 +72,7 @@ Panel {
         root.collapsedSections = state;
         root.pageIndex = 0;
         root.pending = null;
+        root.positioningId = "";
         refresh();
     }
     function action(verb, row) {
@@ -89,6 +94,24 @@ Panel {
                 row: row
             };
     }
+    function showPosition(row) {
+        if (root.positioningId === row.id) {
+            root.positioningId = "";
+            return;
+        }
+        root.positionSection = "right";
+        const layout = root.bar ? root.bar.layoutConfig : {};
+        const sections = ["left", "centerBegin", "center", "centerEnd", "right", "tray"];
+        for (let i = 0; i < sections.length; i++) {
+            const entries = layout[sections[i]] || [];
+            for (let j = 0; j < entries.length; j++) {
+                if ((typeof entries[j] === "string" ? entries[j] : entries[j].id) === row.id)
+                    root.positionSection = sections[i];
+            }
+        }
+        root.positioningId = row.id;
+        root.pending = null;
+    }
     function toggleEnableAfterInstall() {
         if (!root.bar || !root.bar.shell || root.busy)
             return;
@@ -107,9 +130,10 @@ Panel {
             return;
         root.errorText = "";
         root.launching = true;
-        root.launchAction = verb;
+        root.launchAction = verb.indexOf("move-") === 0 ? "move" : verb;
         root.launchId = id || "";
         root.pending = null;
+        root.positioningId = "";
         launcher.command = ["python3", root.backend, "start", verb, id || ""];
         launcher.running = true;
     }
@@ -485,6 +509,13 @@ Panel {
                                     topPadding: Style.space(4)
                                 }
                                 CompactButton {
+                                    visible: root.tab === "installed" && entry.modelData.positionable === true
+                                    text: strings.t("position")
+                                    enabled: !root.busy
+                                    selected: root.positioningId === entry.modelData.id
+                                    onClicked: root.showPosition(entry.modelData)
+                                }
+                                CompactButton {
                                     visible: root.tab !== "marketplace" && entry.modelData.updatable === true && entry.modelData.updateState === "available"
                                     text: strings.t("update")
                                     enabled: !root.busy
@@ -503,6 +534,54 @@ Panel {
                                     text: strings.t("source")
                                     focusable: true
                                     onClicked: root.openSource(entry.modelData)
+                                }
+                            }
+                            Row {
+                                width: parent.width
+                                visible: root.tab === "installed" && entry.modelData.positionable === true && root.positioningId === entry.modelData.id
+                                spacing: Style.space(6)
+                                Dropdown {
+                                    width: parent.width - placeButton.width - parent.spacing
+                                    showLabel: false
+                                    label: strings.t("position")
+                                    rowHeight: Style.space(28)
+                                    value: root.positionSection
+                                    enabled: !root.busy
+                                    options: [
+                                        {
+                                            value: "left",
+                                            label: strings.t("position.left")
+                                        },
+                                        {
+                                            value: "centerBegin",
+                                            label: strings.t("position.centerBegin")
+                                        },
+                                        {
+                                            value: "center",
+                                            label: strings.t("position.center")
+                                        },
+                                        {
+                                            value: "centerEnd",
+                                            label: strings.t("position.centerEnd")
+                                        },
+                                        {
+                                            value: "right",
+                                            label: strings.t("position.right")
+                                        },
+                                        {
+                                            value: "tray",
+                                            label: strings.t("position.tray")
+                                        }
+                                    ]
+                                    onChanged: function (value) {
+                                        root.positionSection = value;
+                                    }
+                                }
+                                CompactButton {
+                                    id: placeButton
+                                    text: strings.t(entry.modelData.enabled ? "applyPosition" : "enableHere")
+                                    enabled: !root.busy
+                                    onClicked: root.execute("move-" + root.positionSection, entry.modelData.id)
                                 }
                             }
                         }
