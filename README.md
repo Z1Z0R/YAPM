@@ -3,7 +3,7 @@
 **YAPM** is a compact plugin manager for the Omarchy shell. Discover community
 plugins, manage what is installed, and check for updates without leaving your bar.
 
-<img src="preview.png" alt="YAPM Marketplace panel with search, plugin descriptions, installation controls, and the enable-after-installation toggle" width="500">
+<img src="preview.png" alt="YAPM Installed panel in Vantablack colors with enabled and disabled sections and a gold Latest release verified badge" width="500">
 
 ## Features
 
