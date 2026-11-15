@@ -49,7 +49,7 @@ class BackendTests(unittest.TestCase):
     def test_install_uses_catalog_url_as_argument_and_stays_disabled(self):
         b.save("catalog", {"rows": [{"id": "test.plugin", "repo": "https://github.com/a/b", "installable": True}]})
         with patch.object(b, "installed", return_value=[]), patch.object(b, "run") as run:
-            b.perform("install", "test.plugin")
+            b.perform("install", "test.plugin", "https://github.com/a/b")
             self.assertEqual(run.call_args.args[0], ["omarchy", "plugin", "add", "https://github.com/a/b", "--yes"])
 
     def test_protected_plugins_and_dirty_updates(self):
@@ -71,11 +71,11 @@ class BackendTests(unittest.TestCase):
     def test_install_with_auto_enable_uses_explicit_omarchy_flag(self):
         b.save("catalog", {"rows": [{"id": "test.plugin", "repo": "https://github.com/a/b", "installable": True}]})
         with patch.object(b, "installed", return_value=[]), patch.object(b, "run") as run:
-            b.perform("install-enable", "test.plugin")
+            b.perform("install-enable", "test.plugin", "https://github.com/a/b")
             self.assertEqual(run.call_args.args[0], ["omarchy", "plugin", "add", "https://github.com/a/b", "--yes", "--enable"])
         with patch.object(b, "installed", return_value=[]), patch.object(b, "run") as run:
             with self.assertRaises(ValueError):
-                b.perform("install-enable", "unknown.plugin")
+                b.perform("install-enable", "unknown.plugin", "https://github.com/a/b")
             run.assert_not_called()
 
     def test_update_checks_use_installed_origin_and_handle_offline(self):

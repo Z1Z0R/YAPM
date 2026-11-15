@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Yet Another Plugin Manager: bounded marketplace reads and serialized Omarchy CLI operations."""
 import concurrent.futures
+from collections import deque
+from contextlib import contextmanager
 import fcntl
 import functools
 import gzip
@@ -8,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
+import stat
 import subprocess
 import sys
 import tempfile
@@ -24,6 +28,7 @@ ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}\Z")
 SHA_RE = re.compile(r"[a-fA-F0-9]{40,64}\Z")
 ENV = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_SSH_COMMAND="ssh -oBatchMode=yes")
 ENV.setdefault("OMARCHY_SHELL_IPC_TIMEOUT", "8s")
+CACHE_DIR_FD = None
 
 
 def valid_id(value):
@@ -53,42 +58,155 @@ def run(args, timeout=20):
     return result.stdout
 
 
-def load(name, default):
+class CacheSecurityError(RuntimeError):
+    """Unsafe cache objects must never be treated as an empty cache."""
+
+
+def check_cache_directory(fd, leaf=False):
+    info = os.fstat(fd)
+    trusted_owner = info.st_uid in (0, os.geteuid())
+    writable = info.st_mode & 0o022
+    sticky = info.st_mode & stat.S_ISVTX
+    if not stat.S_ISDIR(info.st_mode) or not trusted_owner or (writable and not sticky):
+        raise CacheSecurityError("Cache path contains an untrusted or writable directory")
+    if leaf and (info.st_uid != os.geteuid() or writable):
+        raise CacheSecurityError("The yapm cache directory must be owned by you and not writable by others")
+
+
+@contextmanager
+def cache_directory(inherited_fd=None):
+    global CACHE_DIR_FD
+    if CACHE_DIR_FD is not None:
+        yield CACHE_DIR_FD
+        return
+    fd = None
     try:
-        if name == "catalog":
-            compressed = CACHE / "catalog.json.gz"
-            if compressed.exists():
-                with gzip.open(compressed, "rb") as stream:
+        if inherited_fd is not None:
+            if inherited_fd < 3:
+                raise CacheSecurityError("Invalid inherited cache directory")
+            fd = inherited_fd
+        else:
+            # Walk from a trusted root. Non-sticky shared writable ancestors
+            # permit renaming private children and therefore cannot hold locks.
+            flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+            fd = os.open("/", flags)
+            check_cache_directory(fd)
+            remaining = deque(CACHE.absolute().parts[1:])
+            symlinks = 0
+            while remaining:
+                part = remaining.popleft()
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                info = os.stat(part, dir_fd=fd, follow_symlinks=False)
+                if stat.S_ISLNK(info.st_mode):
+                    if info.st_uid not in (0, os.geteuid()) or symlinks >= 40:
+                        raise CacheSecurityError("Cache path contains an untrusted symlink")
+                    symlinks += 1
+                    destination = Path(os.readlink(part, dir_fd=fd))
+                    parts = destination.parts
+                    if destination.is_absolute():
+                        os.close(fd)
+                        fd = os.open("/", flags)
+                        check_cache_directory(fd)
+                        parts = parts[1:]
+                    remaining.extendleft(reversed(parts))
+                    continue
+                child = os.open(part, flags, dir_fd=fd)
+                os.close(fd)
+                fd = child
+                check_cache_directory(fd)
+        check_cache_directory(fd, leaf=True)
+        CACHE_DIR_FD = fd
+        yield fd
+    except OSError as error:
+        raise CacheSecurityError("Cannot safely access the yapm cache: " + str(error)) from error
+    finally:
+        CACHE_DIR_FD = None
+        if fd is not None:
+            os.close(fd)
+
+
+def check_cache_file(fd):
+    info = os.fstat(fd)
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+            or info.st_mode & 0o022 or info.st_nlink != 1):
+        raise CacheSecurityError("Cache files must be regular, singly linked files owned by you and not writable by others")
+    return info
+
+
+def open_cache_file(name, flags, directory_fd):
+    try:
+        fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                     0o600, dir_fd=directory_fd)
+    except FileNotFoundError:
+        raise
+    except OSError as error:
+        raise CacheSecurityError("Cannot safely open cache file " + name) from error
+    try:
+        check_cache_file(fd)
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
+
+
+def open_cache_lock(directory_fd):
+    fd = open_cache_file("operation.lock", os.O_RDWR | os.O_CREAT, directory_fd)
+    return os.fdopen(fd, "r+b")
+
+
+def load(name, default):
+    with cache_directory() as directory_fd:
+        try:
+            filename = name + (".json.gz" if name == "catalog" else ".json")
+            legacy = False
+            try:
+                fd = open_cache_file(filename, os.O_RDONLY, directory_fd)
+            except FileNotFoundError:
+                if name != "catalog":
+                    return default
+                fd = open_cache_file("catalog.json", os.O_RDONLY, directory_fd)
+                legacy = True
+            with os.fdopen(fd, "rb") as stream:
+                if name == "catalog" and not legacy:
+                    with gzip.GzipFile(fileobj=stream) as compressed:
+                        data = compressed.read(MAX_BYTES + 1)
+                else:
                     data = stream.read(MAX_BYTES + 1)
-                if len(data) > MAX_BYTES:
-                    raise ValueError("Catalog cache exceeds decoded size limit")
-                return json.loads(data)
-            legacy = CACHE / "catalog.json"
-            if legacy.stat().st_size > MAX_BYTES:
-                raise ValueError("Catalog cache exceeds size limit")
-            value = json.loads(legacy.read_bytes())
-            save("catalog", value)
+            if len(data) > MAX_BYTES:
+                raise ValueError("Cache exceeds decoded size limit")
+            value = json.loads(data)
+            if legacy:
+                save("catalog", value)
             return value
-        return json.loads((CACHE / (name + ".json")).read_text())
-    except (OSError, ValueError, EOFError):
-        return default
+        except (OSError, ValueError, EOFError):
+            return default
 
 
 def save(name, value):
     raw = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if name == "catalog" and len(raw) > MAX_BYTES:
         raise ValueError("Catalog cache exceeds decoded size limit")
-    CACHE.mkdir(parents=True, exist_ok=True)
-    fd, path = tempfile.mkstemp(prefix=".state-", dir=CACHE)
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(gzip.compress(raw, mtime=0) if name == "catalog" else raw)
-        os.replace(path, CACHE / (name + (".json.gz" if name == "catalog" else ".json")))
-        if name == "catalog":
-            (CACHE / "catalog.json").unlink(missing_ok=True)
-    finally:
-        if os.path.exists(path):
-            os.unlink(path)
+    with cache_directory() as directory_fd:
+        temporary = ".state-" + secrets.token_hex(16)
+        fd = open_cache_file(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, directory_fd)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(gzip.compress(raw, mtime=0) if name == "catalog" else raw)
+            filename = name + (".json.gz" if name == "catalog" else ".json")
+            os.replace(temporary, filename, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+            if name == "catalog":
+                try:
+                    os.unlink("catalog.json", dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
 
 
 def normalize_catalog(data):
@@ -226,7 +344,7 @@ def check_updates():
         raise RuntimeError(f"{failures} update checks failed. See the affected plugins; try again later.")
 
 
-def perform(action, plugin_id):
+def perform(action, plugin_id, repository=""):
     if action == "catalog":
         fetch_catalog()
         return
@@ -242,7 +360,9 @@ def perform(action, plugin_id):
         listing = catalog.get(plugin_id)
         if row or not listing or not listing["installable"] or not repo_url(listing["repo"]):
             raise ValueError("This marketplace entry is not installable")
-        command = ["omarchy", "plugin", "add", listing["repo"], "--yes"]
+        if not repository or repo_url(repository) != repository or listing["repo"] != repository:
+            raise ValueError("Plugin repository changed or was not confirmed; review and confirm installation again")
+        command = ["omarchy", "plugin", "add", repository, "--yes"]
         if action == "install-enable":
             command.append("--enable")
         run(command, timeout=180)
@@ -281,31 +401,42 @@ def perform(action, plugin_id):
         raise ValueError("Unknown action")
 
 
-def start(action, plugin_id):
+def start(action, plugin_id, repository=""):
     if action not in ("catalog", "check", "install", "install-enable", "enable", "disable", "remove", "update") and action not in MOVE_ACTIONS:
         raise ValueError("Unknown action")
-    CACHE.mkdir(parents=True, exist_ok=True)
-    lock = open(CACHE / "operation.lock", "w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise RuntimeError("Another plugin operation is already running")
-    save("job", dict(busy=True, action="move" if action in MOVE_ACTIONS else action, id=plugin_id, at=int(time.time())))
-    child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "worker", action, plugin_id, str(lock.fileno())],
-                             start_new_session=True, pass_fds=(lock.fileno(),), stdin=subprocess.DEVNULL,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=ENV)
-    lock.close()
+    with cache_directory() as directory_fd:
+        with open_cache_lock(directory_fd) as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RuntimeError("Another plugin operation is already running")
+            save("job", dict(busy=True, action="move" if action in MOVE_ACTIONS else action, id=plugin_id, at=int(time.time())))
+            child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "worker", action,
+                                      plugin_id, str(lock.fileno()), repository, str(directory_fd)],
+                                     start_new_session=True, pass_fds=(lock.fileno(), directory_fd),
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, env=ENV)
     return {"started": True, "pid": child.pid}
 
 
-def worker(action, plugin_id, fd):
-    try:
-        perform(action, plugin_id)
-        save("job", dict(busy=False, ok=True, action="move" if action in MOVE_ACTIONS else action, id=plugin_id, at=int(time.time())))
-    except Exception as error:
-        save("job", dict(busy=False, ok=False, action="move" if action in MOVE_ACTIONS else action, id=plugin_id, error=str(error)[-3000:], at=int(time.time())))
-    finally:
-        os.close(int(fd))
+def worker(action, plugin_id, fd, repository="", directory_fd=None):
+    if directory_fd is None or int(fd) < 3:
+        raise CacheSecurityError("Worker requires inherited cache and lock descriptors")
+    fd = int(fd)
+    with cache_directory(int(directory_fd)) as directory_fd:
+        try:
+            info = check_cache_file(fd)
+            lock_info = os.stat("operation.lock", dir_fd=directory_fd, follow_symlinks=False)
+            if not stat.S_ISREG(lock_info.st_mode) or (info.st_dev, info.st_ino) != (lock_info.st_dev, lock_info.st_ino):
+                raise CacheSecurityError("Worker lock does not belong to its cache directory")
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                perform(action, plugin_id, repository)
+                save("job", dict(busy=False, ok=True, action="move" if action in MOVE_ACTIONS else action, id=plugin_id, at=int(time.time())))
+            except Exception as error:
+                save("job", dict(busy=False, ok=False, action="move" if action in MOVE_ACTIONS else action, id=plugin_id, error=str(error)[-3000:], at=int(time.time())))
+        finally:
+            os.close(fd)
 
 
 def view(tab="installed", query="", page="0", origin="all", collapsed=""):
@@ -360,12 +491,13 @@ def view(tab="installed", query="", page="0", origin="all", collapsed=""):
         row["sectionCount"] = enabled_count if enabled else total - enabled_count
     job = load("job", {"busy": False})
     if job.get("busy"):
-        with open(CACHE / "operation.lock", "a") as lock:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                job.update(busy=False, ok=False, error="Previous operation was interrupted; refresh and try again")
-            except BlockingIOError:
-                pass
+        with cache_directory() as directory_fd:
+            with open_cache_lock(directory_fd) as lock:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    job.update(busy=False, ok=False, error="Previous operation was interrupted; refresh and try again")
+                except BlockingIOError:
+                    pass
     return dict(rows=visible_rows, total=total, page=page, pages=pages, updates=count,
                 officialCount=sum(row.get("firstParty") is True for row in local),
                 thirdPartyCount=sum(row.get("firstParty") is not True for row in local),

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "yapm",
   "name": "Yet Another Plugin Manager",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "author": "Zizor",
   "license": "MIT",
   "description": "A simple marketplace and manager for Omarchy shell plugins.",

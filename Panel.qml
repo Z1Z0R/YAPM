@@ -84,14 +84,14 @@ Panel {
             if (verb === "enable" && row.kinds.indexOf("bar") !== -1)
                 pending = {
                     verb: verb,
-                    row: row
+                    row: Object.assign({}, row)
                 };
             else
                 execute(verb, row.id);
         } else
             pending = {
                 verb: verb,
-                row: row
+                row: Object.assign({}, row)
             };
     }
     function showPosition(row) {
@@ -125,7 +125,7 @@ Panel {
         root.pending = null;
         root.bar.shell.updateEntryInline(root.moduleName, entry);
     }
-    function execute(verb, id) {
+    function execute(verb, id, repository) {
         if (busy)
             return;
         root.errorText = "";
@@ -134,7 +134,7 @@ Panel {
         root.launchId = id || "";
         root.pending = null;
         root.positioningId = "";
-        launcher.command = ["python3", root.backend, "start", verb, id || ""];
+        launcher.command = ["python3", root.backend, "start", verb, id || "", repository || ""];
         launcher.running = true;
     }
     function openSource(row) {
@@ -400,7 +400,7 @@ Panel {
                             focusable: true
                             enabled: !root.busy
                             onClicked: if (root.pending)
-                                root.execute(root.pending.verb, root.pending.row.id)
+                                root.execute(root.pending.verb, root.pending.row.id, root.pending.row.repo)
                         }
                     }
                 }
