@@ -20,6 +20,11 @@ plugins, manage what is installed, and check for updates without leaving your ba
   **Enable after installation**. Your preference is remembered.
 - **Check updates directly:** compare installed plugins with their Git repositories
   without downloading the marketplace catalog.
+- **See verified releases:** a gold badge appears when the latest published
+  GitHub release’s tag resolves to the marketplace’s last verified commit.
+  Refresh the catalog, then choose **Verify releases** for the current Marketplace
+  page or **Check updates** for installed plugins. Mismatches and unavailable
+  comparisons show no badge.
 - **Protect required components:** plugins Omarchy marks non-disableable show
   **Required** instead of a Disable button.
 - **Keep downloads small:** compressed catalog downloads, a gzip cache, and

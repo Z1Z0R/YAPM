@@ -23,6 +23,7 @@ PLUGINS = Path.home() / ".config/omarchy/plugins"
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / PLUGIN_ID
 CATALOG_URL = "https://plugins.omarchy.org/catalog.json"
 MAX_BYTES = 64 * 1024 * 1024
+CATALOG_FORMAT = 2
 MOVE_ACTIONS = {"move-" + section: section for section in ("left", "centerBegin", "center", "centerEnd", "right", "tray")}
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}\Z")
 SHA_RE = re.compile(r"[a-fA-F0-9]{40,64}\Z")
@@ -209,6 +210,26 @@ def save(name, value):
                 pass
 
 
+def commit_id(value):
+    if isinstance(value, str) and len(value) in (40, 64) and SHA_RE.fullmatch(value):
+        return value.lower()
+    return ""
+
+
+def verified_match(listing, revision, repository):
+    verified = commit_id(listing.get("verifiedCommit"))
+    return bool(listing.get("verifiedSnapshot") is True and verified
+                and verified == commit_id(revision) and repository
+                and listing.get("repo") == repository and repo_url(repository) == repository)
+
+
+def verified_release_match(listing, release, repository):
+    tag = release.get("tag")
+    return bool(isinstance(tag, str) and 0 < len(tag) <= 128
+                and release.get("repo") == repository
+                and verified_match(listing, release.get("commit"), repository))
+
+
 def normalize_catalog(data):
     if not isinstance(data, dict) or not isinstance(data.get("plugins"), list):
         raise ValueError("Marketplace response is missing its plugin list")
@@ -228,7 +249,9 @@ def normalize_catalog(data):
                          installable=bool(url and item.get("installAvailable") is True
                                           and item.get("repositoryLayout") == "root-plugin"),
                          verification=text(item.get("verificationStatus"), 32),
-                         observed=text(item.get("upstreamObservedCommit"), 64)))
+                         verifiedSnapshot=item.get("verificationSnapshotStatus") == "verified",
+                         verifiedCommit=commit_id(item.get("verificationCommit")),
+                         observed=commit_id(item.get("upstreamObservedCommit"))))
     return sorted(rows, key=lambda row: row["name"].casefold())
 
 
@@ -242,7 +265,7 @@ def fetch_catalog():
              "--max-filesize", str(MAX_BYTES), "--dump-header", str(headers),
              "--write-out", "%{http_code}", "--output", str(path)]
         etag = cached.get("etag", "")
-        if cached.get("at") and isinstance(etag, str) and 0 < len(etag) <= 512 and "\r" not in etag and "\n" not in etag:
+        if cached.get("format") == CATALOG_FORMAT and cached.get("at") and isinstance(etag, str) and 0 < len(etag) <= 512 and "\r" not in etag and "\n" not in etag:
             command.extend(["--header", "If-None-Match: " + etag])
         status = run(command + [CATALOG_URL], timeout=50).strip()
         if status == "304" and cached.get("at"):
@@ -262,7 +285,7 @@ def fetch_catalog():
                 etag = ""
             elif line.lower().startswith("etag:"):
                 etag = line[5:].strip()[:512]
-    result = {"rows": rows, "at": int(time.time()), "etag": etag}
+    result = {"rows": rows, "at": int(time.time()), "etag": etag, "format": CATALOG_FORMAT}
     save("catalog", result)
     return result
 
@@ -334,11 +357,90 @@ def check_one(row):
     return row["id"], result
 
 
+def github_release_api(repository):
+    if not repository or repo_url(repository) != repository:
+        return ""
+    parsed = urlsplit(repository)
+    parts = parsed.path.strip("/").split("/")
+    if parsed.hostname != "github.com" or len(parts) != 2:
+        return ""
+    if not all(re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts):
+        return ""
+    return "https://api.github.com/repos/" + "/".join(parts) + "/releases/latest"
+
+
+def release_checkable(listing):
+    return bool(listing.get("verifiedSnapshot") is True
+                and commit_id(listing.get("verifiedCommit"))
+                and github_release_api(listing.get("repo")))
+
+
+def check_release(listing):
+    repository = listing["repo"]
+    result = {"repo": repository, "tag": "", "commit": "", "at": int(time.time())}
+    try:
+        with tempfile.TemporaryDirectory(prefix="yapm-release-") as directory:
+            path = Path(directory) / "release.json"
+            run(["curl", "--fail", "--silent", "--show-error", "--location", "--compressed",
+                 "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "5",
+                 "--max-time", "15", "--max-filesize", "1048576", "--header",
+                 "Accept: application/vnd.github+json", "--output", str(path),
+                 github_release_api(repository)], timeout=20)
+            if path.stat().st_size > 1048576:
+                raise ValueError("Release response exceeds size limit")
+            release = json.loads(path.read_bytes())
+        tag = release.get("tag_name")
+        if (release.get("draft") is not False or release.get("prerelease") is not False
+                or not isinstance(tag, str) or not 0 < len(tag) <= 128):
+            raise ValueError("No supported published release")
+        reference = "refs/tags/" + tag
+        run(["git", "check-ref-format", reference])
+        output = run(["git", "ls-remote", "--exit-code", "--", repository,
+                      reference, reference + "^{}"], timeout=20)
+        refs = {}
+        for line in output.splitlines():
+            fields = line.split()
+            if len(fields) == 2 and fields[1] in (reference, reference + "^{}"):
+                revision = commit_id(fields[0])
+                if not revision:
+                    raise ValueError("Invalid release revision")
+                refs[fields[1]] = revision
+        revision = refs.get(reference + "^{}") or refs.get(reference, "")
+        if not revision:
+            raise ValueError("Release tag could not be resolved")
+        result.update(tag=tag, commit=revision)
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired, AttributeError):
+        pass
+    return listing["id"], result
+
+
+def refresh_release_checks(plugin_ids, listings):
+    targets = [listings[plugin_id] for plugin_id in dict.fromkeys(plugin_ids)
+               if release_checkable(listings.get(plugin_id, {}))]
+    if not targets:
+        return
+    cached = load("releases", {"rows": {}})
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        cached["rows"].update(dict(pool.map(check_release, targets)))
+    save("releases", cached)
+
+
+def check_release_page(plugin_ids):
+    ids = plugin_ids.split(",")
+    if not 0 < len(ids) <= 20 or not all(valid_id(plugin_id) for plugin_id in ids):
+        raise ValueError("Select up to 20 valid plugins for release verification")
+    listings = {row["id"]: row for row in load("catalog", {"rows": []})["rows"]}
+    refresh_release_checks(ids, listings)
+
+
 def check_updates():
     rows = [row for row in installed() if not row.get("firstParty") and row["id"] != PLUGIN_ID]
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         results = dict(pool.map(check_one, rows))
     save("updates", {"rows": results, "at": int(time.time())})
+    listings = {row["id"]: row for row in load("catalog", {"rows": []})["rows"]}
+    refresh_release_checks([row["id"] for row in rows
+                            if row.get("repo") == listings.get(row["id"], {}).get("repo")], listings)
     failures = sum(row["state"] == "error" for row in results.values())
     if failures:
         raise RuntimeError(f"{failures} update checks failed. See the affected plugins; try again later.")
@@ -350,6 +452,9 @@ def perform(action, plugin_id, repository=""):
         return
     if action == "check":
         check_updates()
+        return
+    if action == "releases":
+        check_release_page(plugin_id)
         return
     if not valid_id(plugin_id) or (plugin_id == PLUGIN_ID and action not in MOVE_ACTIONS):
         raise ValueError("This plugin cannot modify itself")
@@ -402,7 +507,7 @@ def perform(action, plugin_id, repository=""):
 
 
 def start(action, plugin_id, repository=""):
-    if action not in ("catalog", "check", "install", "install-enable", "enable", "disable", "remove", "update") and action not in MOVE_ACTIONS:
+    if action not in ("catalog", "check", "releases", "install", "install-enable", "enable", "disable", "remove", "update") and action not in MOVE_ACTIONS:
         raise ValueError("Unknown action")
     with cache_directory() as directory_fd:
         with open_cache_lock(directory_fd) as lock:
@@ -445,19 +550,29 @@ def view(tab="installed", query="", page="0", origin="all", collapsed=""):
     listings = {row["id"]: row for row in catalog["rows"]}
     updates = load("updates", {"rows": {}, "at": 0})
     local_ids = {row["id"] for row in local}
+    releases = load("releases", {"rows": {}})["rows"]
     for row in local:
         listing = listings.get(row["id"], {})
         row["description"] = text(row.get("description") or listing.get("description"), 280)
         checked = updates["rows"].get(row["id"], {})
         row["updateState"] = checked.get("state", "unchecked") if checked.get("head") == row["head"] else "unchecked"
         row["updateError"] = checked.get("error", "")
+        release = releases.get(row["id"], {})
+        row["verifiedMatch"] = verified_release_match(listing, release, row.get("repo"))
+        row["verifiedReleaseTag"] = release.get("tag", "") if row["verifiedMatch"] else ""
         row["latest"] = listing.get("version", "")
         row["positionable"] = "bar-widget" in row.get("kinds", []) and "bar" not in row.get("kinds", [])
         row["manageable"] = row["id"] != PLUGIN_ID
         row["updatable"] = eligible(row) and row["manageable"]
     count = sum(row["updateState"] == "available" for row in local)
     if tab == "marketplace":
-        rows = [dict(row, installed=row["id"] in local_ids) for row in catalog["rows"]]
+        rows = []
+        for listing in catalog["rows"]:
+            release = releases.get(listing["id"], {})
+            matched = verified_release_match(listing, release, listing.get("repo"))
+            rows.append(dict(listing, installed=listing["id"] in local_ids,
+                             releaseCheckable=release_checkable(listing), verifiedMatch=matched,
+                             verifiedReleaseTag=release.get("tag", "") if matched else ""))
     elif tab == "updates":
         rows = [row for row in local if row["updateState"] in ("available", "error")]
     else:

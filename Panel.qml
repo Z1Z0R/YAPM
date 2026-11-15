@@ -332,6 +332,21 @@ Panel {
                     enabled: !root.busy
                     onClicked: root.execute(root.tab === "marketplace" ? "catalog" : "check", "")
                 }
+                CompactButton {
+                    visible: root.tab === "marketplace"
+                    text: strings.t("verifyReleases")
+                    enabled: !root.busy && root.snapshot.rows.some(function (row) {
+                        return row.releaseCheckable === true;
+                    })
+                    onClicked: {
+                        const ids = root.snapshot.rows.filter(function (row) {
+                            return row.releaseCheckable === true;
+                        }).map(function (row) {
+                            return row.id;
+                        });
+                        root.execute("releases", ids.join(","));
+                    }
+                }
             }
             Row {
                 width: parent.width
@@ -457,6 +472,26 @@ Panel {
                                     id: version
                                     text: entry.modelData.version || ""
                                     opacity: 0.55
+                                    font.pixelSize: Style.font.bodySmall
+                                }
+                            }
+                            Rectangle {
+                                visible: entry.modelData.verifiedMatch === true
+                                width: parent.width
+                                height: verifiedLabel.implicitHeight + Style.space(8)
+                                radius: Style.cornerRadius
+                                color: "#302913"
+                                border.color: "#b58b2a"
+                                border.width: 1
+                                PlainText {
+                                    id: verifiedLabel
+                                    anchors.centerIn: parent
+                                    width: parent.width - Style.space(12)
+                                    text: strings.t("verifiedRelease").arg(entry.modelData.verifiedReleaseTag || "")
+                                    wrapMode: Text.WrapAnywhere
+                                    maximumLineCount: 2
+                                    elide: Text.ElideRight
+                                    color: "#f4cd68"
                                     font.pixelSize: Style.font.bodySmall
                                 }
                             }
