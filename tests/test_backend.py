@@ -169,6 +169,27 @@ class BackendTests(unittest.TestCase):
         # All displayed model fields go through our PlainText component.
         self.assertIn("text: entry.modelData.name", panel)
 
+    def test_editable_fields_are_unloaded_when_panel_is_closed(self):
+        panel = (ROOT / "Panel.qml").read_text()
+        self.assertEqual(panel.count("sourceComponent: TextField {"), 2)
+        self.assertNotRegex(panel, r"(?m)^                TextField\s*\{")
+        for field, condition in (("searchField", "root.opened"),
+                                 ("repositoryField", 'root.opened && root.tab === "marketplace"')):
+            start = panel.index("id: " + field)
+            end = panel.index("sourceComponent: TextField {", start)
+            self.assertIn("active: " + condition + "\n", panel[start:end])
+        self.assertIn("text: root.query", panel)
+        self.assertIn("text: root.repositoryUrl", panel)
+
+    def test_all_install_confirmations_disclose_default_branch_and_release_scope(self):
+        strings = json.loads((ROOT / "i18n/en.json").read_text())
+        for action in ("install", "install-enable", "install-url", "install-url-enable"):
+            confirmation = strings["confirm." + action]
+            self.assertIn("latest default-branch commit", confirmation)
+            self.assertIn("may differ from the verified release", confirmation)
+        panel = (ROOT / "Panel.qml").read_text()
+        self.assertIn('strings.t("verifiedReleaseScope")', panel)
+
     def test_view_paginates_and_invalidates_checks_when_head_changes(self):
         rows = [{"id": "test." + str(i), "name": "Plugin " + str(i), "head": "new", "repo": "", "firstParty": False} for i in range(35)]
         b.save("updates", {"rows": {"test.0": {"head": "old", "state": "available"}}, "at": 1})

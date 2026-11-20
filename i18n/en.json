@@ -10,7 +10,7 @@
   "refreshCatalog": "Refresh catalog",
   "checkUpdates": "Check updates",
   "readError": "Could not read the plugin manager response.",
-  "confirm.install": "Install %1? Plugins run with your user’s access. Review the source first; this installs it disabled.",
+  "confirm.install": "Install %1 from the latest default-branch commit? This may differ from the verified release. Review the source first. The plugin will be installed disabled.",
   "confirm.update": "Update %1 from its repository? Review the source first. Local edits are protected.",
   "confirm.remove": "Remove %1? Omarchy deletes Git checkouts, including local files. Other local plugins are backed up by Omarchy.",
   "confirm.enable": "Enable %1 as your shell bar? This replaces the currently selected bar.",
@@ -60,7 +60,7 @@
   "enableAfterInstall": "Enable after installation",
   "enableAfterInstallOn": "New plugins will be enabled immediately after installation.",
   "enableAfterInstallOff": "New plugins will stay disabled until you enable them.",
-  "confirm.install-enable": "Install and enable %1? The plugin will run immediately with your user’s access. Review the source first.",
+  "confirm.install-enable": "Install and enable %1 from the latest default-branch commit? This may differ from the verified release and will run immediately with your user’s access. Review the source first.",
   "working.install-enable": "Installing and enabling plugin…",
   "done.install-enable": "Plugin installed and enabled.",
   "noDescription": "No description provided by this plugin.",
@@ -84,10 +84,11 @@
   "done.releases": "Release verification check complete.",
   "gitUrl": "Paste HTTPS Git repository URL…",
   "gitPlugin": "plugin from this repository",
-  "confirm.install-url": "Install %1? Plugins run with your user’s access. Review the source first; this installs it disabled.",
+  "confirm.install-url": "Install %1 from the latest default-branch commit? This may differ from the verified release. Review the source first. The plugin will be installed disabled.",
   "working.install-url": "Installing plugin…",
   "done.install-url": "Plugin installed. Find it in Installed to enable it.",
-  "confirm.install-url-enable": "Install and enable %1? The plugin will run immediately with your user’s access. Review the source first.",
+  "confirm.install-url-enable": "Install and enable %1 from the latest default-branch commit? This may differ from the verified release and will run immediately with your user’s access. Review the source first.",
   "working.install-url-enable": "Installing and enabling plugin…",
-  "done.install-url-enable": "Plugin installed and enabled."
+  "done.install-url-enable": "Plugin installed and enabled.",
+  "verifiedReleaseScope": "The badge covers the published release. Installation fetches the latest default-branch commit, which may differ."
 }

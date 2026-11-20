@@ -14,6 +14,7 @@ Panel {
     property var hostWidget: null
     property string tab: "installed"
     property string query: ""
+    property string repositoryUrl: ""
     property string origin: "official"
     property var collapsedSections: ({})
     readonly property bool enableAfterInstall: setting("enableAfterInstall", false) === true
@@ -281,31 +282,38 @@ Panel {
             Row {
                 width: parent.width
                 spacing: Style.space(8)
-                TextField {
+                Loader {
                     id: searchField
                     width: parent.width - (clearSearch.visible ? clearSearch.width + parent.spacing : 0)
-                    placeholderText: strings.t("search")
-                    implicitHeight: Style.space(30)
-                    Accessible.name: strings.t("searchLabel")
-                    onTextChanged: {
-                        root.query = text;
-                        root.pageIndex = 0;
-                        debounce.restart();
-                    }
-                    Keys.onEscapePressed: {
-                        root.pending = null;
-                        root.close();
+                    height: Style.space(30)
+                    // Destroy text inputs while closed to disconnect Qt clipboard listeners.
+                    active: root.opened
+                    sourceComponent: TextField {
+                        text: root.query
+                        placeholderText: strings.t("search")
+                        Accessible.name: strings.t("searchLabel")
+                        onTextEdited: {
+                            root.query = text;
+                            root.pageIndex = 0;
+                            debounce.restart();
+                        }
+                        Keys.onEscapePressed: {
+                            root.pending = null;
+                            root.close();
+                        }
                     }
                 }
                 CompactButton {
                     id: clearSearch
-                    visible: searchField.text.length > 0
+                    visible: root.query.length > 0
                     text: strings.t("clearSearch")
-                    enabled: searchField.text.length > 0
+                    enabled: searchField.item !== null && root.query.length > 0
                     focusable: true
                     onClicked: {
-                        searchField.clear();
-                        searchField.forceActiveFocus();
+                        root.query = "";
+                        root.pageIndex = 0;
+                        debounce.restart();
+                        searchField.item.forceActiveFocus();
                     }
                 }
             }
@@ -313,27 +321,34 @@ Panel {
                 width: parent.width
                 visible: root.tab === "marketplace"
                 spacing: Style.space(8)
-                TextField {
+                Loader {
                     id: repositoryField
                     width: parent.width - installRepository.width - parent.spacing
-                    placeholderText: strings.t("gitUrl")
-                    implicitHeight: Style.space(30)
-                    maximumLength: 512
-                    enabled: !root.busy
-                    Accessible.name: strings.t("gitUrl")
-                    onTextChanged: root.pending = null
-                    onAccepted: if (installRepository.enabled)
-                        installRepository.clicked()
+                    height: Style.space(30)
+                    active: root.opened && root.tab === "marketplace"
+                    sourceComponent: TextField {
+                        text: root.repositoryUrl
+                        placeholderText: strings.t("gitUrl")
+                        maximumLength: 512
+                        enabled: !root.busy
+                        Accessible.name: strings.t("gitUrl")
+                        onTextEdited: {
+                            root.repositoryUrl = text;
+                            root.pending = null;
+                        }
+                        onAccepted: if (installRepository.enabled)
+                            installRepository.clicked()
+                    }
                 }
                 CompactButton {
                     id: installRepository
                     text: strings.t("install")
-                    enabled: !root.busy && repositoryField.text.trim().length > 0
+                    enabled: !root.busy && root.repositoryUrl.trim().length > 0
                     focusable: true
                     onClicked: root.action("install-url", {
                         id: "",
                         name: strings.t("gitPlugin"),
-                        repo: repositoryField.text.trim()
+                        repo: root.repositoryUrl.trim()
                     })
                 }
             }
@@ -522,6 +537,13 @@ Panel {
                                     color: "#f4cd68"
                                     font.pixelSize: Style.font.bodySmall
                                 }
+                            }
+                            PlainText {
+                                width: parent.width
+                                visible: entry.modelData.verifiedMatch === true && root.tab === "marketplace"
+                                text: strings.t("verifiedReleaseScope")
+                                font.pixelSize: Style.font.bodySmall
+                                opacity: 0.8
                             }
                             PlainText {
                                 width: parent.width
