@@ -81,5 +81,13 @@
   "verifiedRelease": "Latest release verified · %1",
   "verifyReleases": "Verify releases",
   "working.releases": "Checking latest published releases…",
-  "done.releases": "Release verification check complete."
+  "done.releases": "Release verification check complete.",
+  "gitUrl": "Paste HTTPS Git repository URL…",
+  "gitPlugin": "plugin from this repository",
+  "confirm.install-url": "Install %1? Plugins run with your user’s access. Review the source first; this installs it disabled.",
+  "working.install-url": "Installing plugin…",
+  "done.install-url": "Plugin installed. Find it in Installed to enable it.",
+  "confirm.install-url-enable": "Install and enable %1? The plugin will run immediately with your user’s access. Review the source first.",
+  "working.install-url-enable": "Installing and enabling plugin…",
+  "done.install-url-enable": "Plugin installed and enabled."
 }

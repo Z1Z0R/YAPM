@@ -78,8 +78,8 @@ Panel {
     function action(verb, row) {
         if (busy)
             return;
-        if (verb === "install" && root.enableAfterInstall)
-            verb = "install-enable";
+        if ((verb === "install" || verb === "install-url") && root.enableAfterInstall)
+            verb += "-enable";
         if (verb === "enable" || verb === "disable") {
             if (verb === "enable" && row.kinds.indexOf("bar") !== -1)
                 pending = {
@@ -307,6 +307,34 @@ Panel {
                         searchField.clear();
                         searchField.forceActiveFocus();
                     }
+                }
+            }
+            Row {
+                width: parent.width
+                visible: root.tab === "marketplace"
+                spacing: Style.space(8)
+                TextField {
+                    id: repositoryField
+                    width: parent.width - installRepository.width - parent.spacing
+                    placeholderText: strings.t("gitUrl")
+                    implicitHeight: Style.space(30)
+                    maximumLength: 512
+                    enabled: !root.busy
+                    Accessible.name: strings.t("gitUrl")
+                    onTextChanged: root.pending = null
+                    onAccepted: if (installRepository.enabled)
+                        installRepository.clicked()
+                }
+                CompactButton {
+                    id: installRepository
+                    text: strings.t("install")
+                    enabled: !root.busy && repositoryField.text.trim().length > 0
+                    focusable: true
+                    onClicked: root.action("install-url", {
+                        id: "",
+                        name: strings.t("gitPlugin"),
+                        repo: repositoryField.text.trim()
+                    })
                 }
             }
             Flow {

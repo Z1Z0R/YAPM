@@ -52,6 +52,25 @@ class BackendTests(unittest.TestCase):
             b.perform("install", "test.plugin", "https://github.com/a/b")
             self.assertEqual(run.call_args.args[0], ["omarchy", "plugin", "add", "https://github.com/a/b", "--yes"])
 
+    def test_direct_install_uses_confirmed_url_without_catalog(self):
+        repository = "https://github.com/acme/plugin.git"
+        with patch.object(b, "load", side_effect=AssertionError("Catalog must not be needed")), patch.object(b, "run") as run:
+            for action in ("install-url", "install-url-enable"):
+                b.perform(action, "", repository)
+                expected = ["omarchy", "plugin", "add", repository, "--yes"]
+                if action == "install-url-enable":
+                    expected.append("--enable")
+                self.assertEqual(run.call_args.args[0], expected)
+
+    def test_direct_install_rejects_unsafe_urls_before_running_commands(self):
+        with patch.object(b, "run") as run:
+            for action in ("install-url", "install-url-enable"):
+                for repository in ("", "--upload-pack=evil", "ext::sh -c id", "file:///tmp/plugin",
+                                   "https://user:secret@github.com/a/b", "https://github.com/a/$(id)"):
+                    with self.assertRaisesRegex(ValueError, "HTTPS Git"):
+                        b.perform(action, "", repository)
+            run.assert_not_called()
+
     def test_protected_plugins_and_dirty_updates(self):
         with self.assertRaises(ValueError):
             b.perform("remove", b.PLUGIN_ID)

@@ -446,6 +446,13 @@ def check_updates():
         raise RuntimeError(f"{failures} update checks failed. See the affected plugins; try again later.")
 
 
+def install_repository(repository, enable):
+    command = ["omarchy", "plugin", "add", repository, "--yes"]
+    if enable:
+        command.append("--enable")
+    run(command, timeout=180)
+
+
 def perform(action, plugin_id, repository=""):
     if action == "catalog":
         fetch_catalog()
@@ -455,6 +462,11 @@ def perform(action, plugin_id, repository=""):
         return
     if action == "releases":
         check_release_page(plugin_id)
+        return
+    if action in ("install-url", "install-url-enable"):
+        if not repo_url(repository):
+            raise ValueError("Enter a valid HTTPS Git repository URL")
+        install_repository(repository, action == "install-url-enable")
         return
     if not valid_id(plugin_id) or (plugin_id == PLUGIN_ID and action not in MOVE_ACTIONS):
         raise ValueError("This plugin cannot modify itself")
@@ -467,10 +479,7 @@ def perform(action, plugin_id, repository=""):
             raise ValueError("This marketplace entry is not installable")
         if not repository or repo_url(repository) != repository or listing["repo"] != repository:
             raise ValueError("Plugin repository changed or was not confirmed; review and confirm installation again")
-        command = ["omarchy", "plugin", "add", repository, "--yes"]
-        if action == "install-enable":
-            command.append("--enable")
-        run(command, timeout=180)
+        install_repository(repository, action == "install-enable")
         return
     if not row:
         raise ValueError("Plugin is no longer installed")
@@ -507,7 +516,7 @@ def perform(action, plugin_id, repository=""):
 
 
 def start(action, plugin_id, repository=""):
-    if action not in ("catalog", "check", "releases", "install", "install-enable", "enable", "disable", "remove", "update") and action not in MOVE_ACTIONS:
+    if action not in ("catalog", "check", "releases", "install", "install-enable", "install-url", "install-url-enable", "enable", "disable", "remove", "update") and action not in MOVE_ACTIONS:
         raise ValueError("Unknown action")
     with cache_directory() as directory_fd:
         with open_cache_lock(directory_fd) as lock:
